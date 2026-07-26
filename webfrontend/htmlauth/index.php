@@ -150,6 +150,22 @@ $rb_host = rb_e(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '<loxberr
 .rb-tbl th { background: #f0f0f0; }
 .rb-wrap .rb-btn, .rb-wrap a.rb-btn, .rb-wrap button { text-shadow: none !important; box-shadow: none !important; }
 .rb-wrap a.rb-btn, .rb-wrap a.rb-btn:visited, .rb-wrap a.rb-btn:hover { color: #fff !important; text-decoration: none; }
+
+/* --- Einheitliches Kachel-Raster im Reiter Test (Standard aller Plugins) --- */
+.rb-h3 { color: #4f7d17; font-size: 1.0em; font-weight: 700; margin: 16px 0 2px; text-shadow: none !important; }
+.rb-knopfreihe { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 4px; align-items: stretch; }
+.rb-knopfreihe form { margin: 0; display: flex; }
+.rb-knopfreihe .rb-btn { flex: 0 0 auto; min-width: 250px; text-align: center;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1.25; }
+.rb-legende { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 2px; font-size: 0.86em; color: #555; }
+.rb-legende span { display: inline-flex; align-items: center; gap: 6px; }
+.rb-punkt { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
+.rb-btn.rb-b-lesen   { background: #6dac20; }
+.rb-btn.rb-b-technik { background: #546e7a; }
+.rb-btn.rb-b-aktion  { background: #e0620d; }
+.rb-punkt.rb-b-lesen   { background: #6dac20; }
+.rb-punkt.rb-b-technik { background: #546e7a; }
+.rb-punkt.rb-b-aktion  { background: #e0620d; }
 </style>
 <div class="rb-wrap">
 
@@ -395,17 +411,32 @@ Alle Werte auch per MQTT (Reiter Einstellungen) und als JSON inklusive Raumliste
 <!-- ================= Test ================= -->
 <div class="rb-pane" id="tab-test">
 <h2>Test</h2>
-<p>
-<a class="rb-btn" style="display:inline-block;margin-right:8px;" href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php" target="_blank">Loxone-Zeile abrufen</a>
-<a class="rb-btn" style="display:inline-block;margin-right:8px;" href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?debug=1&amp;refresh=1" target="_blank">Debug (inkl. Raumliste)</a>
-<a class="rb-btn" style="display:inline-block;margin-right:8px;background:#607d8b;" href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?json=1" target="_blank">JSON-Ansicht</a>
-<a class="rb-btn" style="display:inline-block;background:#e65100;" href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?ptest=1" target="_blank">Test-Pushnachricht</a>
-</p>
-<p>
-<a class="rb-btn" style="display:inline-block;margin-right:8px;background:#607d8b;" href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=locate" target="_blank">Roboter piepsen lassen</a>
-<a class="rb-btn" style="display:inline-block;margin-right:8px;background:#607d8b;" href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=home" target="_blank">Zur Ladestation</a>
-<a class="rb-btn" style="display:inline-block;background:#607d8b;" href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=stop" target="_blank">Stopp</a>
-</p>
+<div class="rb-legende">
+<span><i class="rb-punkt rb-b-lesen"></i> Ansehen &mdash; fragt nur ab, ver&auml;ndert nichts</span>
+<span><i class="rb-punkt rb-b-technik"></i> Technische Auskunft &mdash; f&uuml;r die Fehlersuche</span>
+<span><i class="rb-punkt rb-b-aktion"></i> L&ouml;st etwas aus &mdash; sendet oder ver&auml;ndert</span>
+</div>
+
+<h3 class="rb-h3">Ansehen</h3>
+<div class="rb-knopfreihe">
+<a class="rb-btn rb-b-lesen"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php" target="_blank">Loxone-Zeile abrufen</a>
+<a class="rb-btn rb-b-lesen"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?json=1" target="_blank">JSON-Ansicht</a>
+</div>
+
+<h3 class="rb-h3">Technische Auskunft</h3>
+<div class="rb-knopfreihe">
+<a class="rb-btn rb-b-technik"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?debug=1&amp;refresh=1" target="_blank">Debug (inkl. Raumliste)</a>
+</div>
+
+<h3 class="rb-h3">L&ouml;st etwas aus</h3>
+<div class="rb-knopfreihe">
+<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?ptest=1" target="_blank">Test-Pushnachricht</a>
+<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=locate" target="_blank">Roboter piepsen lassen</a>
+<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=home" target="_blank">Zur Ladestation</a>
+<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=stop" target="_blank">Stopp</a>
+</div>
+
+
 <div class="rb-small">&bdquo;Piepsen lassen&ldquo; ist der ungef&auml;hrlichste Verbindungstest &mdash; der Roboter meldet sich akustisch, f&auml;hrt aber nicht los.</div>
 <?php $rb_seg = function_exists('ro_segments') ? ro_segments(1) : array(); if ($rb_seg) { ?>
 <h2>R&auml;ume (Segment-IDs)</h2>
