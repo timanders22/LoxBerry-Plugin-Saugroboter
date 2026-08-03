@@ -1,6 +1,6 @@
 <?php
 /**
- * Saugroboter (Valetudo) - Admin-Oberflaeche (v1.0.0)
+ * Saugroboter (Valetudo) - Admin-Oberflaeche
  * Reiter: Einstellungen | Einbindung in Loxone | Test | Protokoll
  * Kompatibel mit PHP 7.4 und PHP 8.x (LoxBerry 3.x/4.x).
  *
@@ -48,6 +48,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['clearlog'])) {
     @mkdir(dirname($rb_logfile), 0775, true);
     @file_put_contents($rb_logfile, '[' . date('Y-m-d H:i:s') . "] Protokoll geleert (Admin-Oberflaeche)\n");
     $rb_tab = 'tab-log';
+}
+
+// ---------- Neues Aktionstoken erzeugen ----------
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['token_neu'])) {
+    $rb_cfg_tok = function_exists('ro_config') ? ro_config() : array();
+    if (!is_array($rb_cfg_tok)) { $rb_cfg_tok = array(); }
+    $rb_cfg_tok['aktionstoken'] = function_exists('ro_token_erzeugen') ? ro_token_erzeugen() : bin2hex(random_bytes(12));
+    if (!is_dir($rb_cfgdir)) { @mkdir($rb_cfgdir, 0775, true); }
+    $rb_json_tok = json_encode($rb_cfg_tok, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (@file_put_contents($rb_cfgfile, $rb_json_tok) !== false) {
+        @copy($rb_cfgfile, $rb_bkfile);
+        $rb_note = 'Neues Token erzeugt. Die Adressen in Loxone muessen angepasst werden '
+                 . '- die alten funktionieren nicht mehr.';
+    }
+    $rb_tab = 'tab-loxone';
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
@@ -100,7 +115,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
 $rb_cfg = function_exists('ro_config') ? ro_config() : array();
 if (!is_array($rb_cfg)) { $rb_cfg = array(); }
 $rb_cfg += array('robots' => array(), 'cache_sec' => 20, 'warn_hours' => 10, 'mqtt_enabled' => 0,
-    'mqtt_topic' => 'saugrobo', 'notify' => array(), 'tts' => array());
+    'mqtt_topic' => 'saugrobo', 'notify' => array(), 'tts' => array(), 'aktionstoken' => '');
+
+// Beim ersten Aufruf ein Token erzeugen, damit der Endpunkt fuer Loxone sofort
+// benutzbar ist (schuetzt ?cmd= im unangemeldeten robo.php).
+if (empty($rb_cfg['aktionstoken'])) {
+    $rb_cfg['aktionstoken'] = function_exists('ro_token_erzeugen') ? ro_token_erzeugen() : bin2hex(random_bytes(12));
+    if (!is_dir($rb_cfgdir)) { @mkdir($rb_cfgdir, 0775, true); }
+    $rb_json_init = json_encode($rb_cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (@file_put_contents($rb_cfgfile, $rb_json_init) !== false) {
+        @copy($rb_cfgfile, $rb_bkfile);
+    }
+}
 $rb_notify = is_array($rb_cfg['notify']) ? $rb_cfg['notify'] : array();
 $rb_notify += array('audio' => 0, 'push' => 0, 'fertig' => 1, 'fehler' => 1, 'material' => 1);
 $rb_tts = is_array($rb_cfg['tts']) ? $rb_cfg['tts'] : array();
@@ -121,94 +147,93 @@ if ($rb_frame) { LBWeb::lbheader('Saugroboter', 'https://wiki.loxberry.de/', '')
 $rb_host = rb_e(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '<loxberry-ip>');
 ?>
 <style>
-.rb-wrap { max-width: 940px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #333; }
-.rb-wrap h2 { color: #6dac20; margin: 24px 0 10px; font-size: 1.15em; border-bottom: 2px solid #e0e0e0; padding-bottom: 6px; }
-.rb-wrap label { display: block; font-weight: 600; font-size: 0.88em; color: #555; margin: 10px 0 4px; }
-.rb-wrap input[type=text], .rb-wrap input[type=number], .rb-wrap select, .rb-wrap textarea {
+.sm-wrap { max-width: 940px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; color: #333; }
+.sm-wrap h2 { color: #6dac20; margin: 24px 0 10px; font-size: 1.15em; border-bottom: 2px solid #e0e0e0; padding-bottom: 6px; }
+.sm-wrap label { display: block; font-weight: 600; font-size: 0.88em; color: #555; margin: 10px 0 4px; }
+.sm-wrap input[type=text], .sm-wrap input[type=number], .sm-wrap select, .sm-wrap textarea {
   width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 0.95em; box-sizing: border-box; }
-.rb-wrap input[type=checkbox] { width: 17px; height: 17px; margin: 0; vertical-align: middle; }
-.rb-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.rb-row > div { flex: 1; min-width: 150px; }
-.rb-row > div > label:not([style]) { min-height: 2.6em; display: flex; align-items: flex-end; }
-.rb-btn { background: #6dac20; color: #fff !important; border: 0; border-radius: 6px; padding: 10px 22px; font-size: 1em; cursor: pointer; margin-top: 18px; font-weight: 600; }
-.rb-alert { border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
-.rb-ok { background: #e8f5e9; border: 1px solid #a5d6a7; }
-.rb-err { background: #ffebee; border: 1px solid #ef9a9a; }
-.rb-warn { background: #fff8e1; border: 1px solid #ffe082; }
-.rb-info { background: #e3f2fd; border: 1px solid #90caf9; font-size: 0.9em; }
-.rb-mono { font-family: ui-monospace, monospace; background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
-.rb-small { font-size: 0.82em; color: #666; margin-top: 3px; }
-.rb-tabs { display: flex; gap: 4px; margin: 14px 0 0; border-bottom: 2px solid #6dac20; flex-wrap: wrap; }
-.rb-tab { background: #eee; border: 1px solid #ccc; border-bottom: 0; border-radius: 8px 8px 0 0; padding: 9px 18px; cursor: pointer; font-size: 0.95em; color: #444 !important; text-shadow: none !important; }
-.rb-tab.rb-active { background: #6dac20; color: #fff !important; border-color: #6dac20; font-weight: 600; }
-.rb-pane { display: none; padding-top: 4px; }
-.rb-pane.rb-active { display: block; }
-.rb-log { text-shadow: none !important; background: #1e1e1e; color: #d4d4d4; font-family: ui-monospace, monospace; font-size: 0.82em; padding: 12px; border-radius: 8px; max-height: 480px; overflow: auto; white-space: pre-wrap; }
-.rb-step { margin: 10px 0; padding: 10px 14px; background: #fafafa; border-left: 4px solid #6dac20; border-radius: 0 8px 8px 0; }
-.rb-tbl { border-collapse: collapse; margin: 8px 0; }
-.rb-tbl th, .rb-tbl td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 0.9em; }
-.rb-tbl th { background: #f0f0f0; }
-.rb-wrap .rb-btn, .rb-wrap a.rb-btn, .rb-wrap button { text-shadow: none !important; box-shadow: none !important; }
-.rb-wrap a.rb-btn, .rb-wrap a.rb-btn:visited, .rb-wrap a.rb-btn:hover { color: #fff !important; text-decoration: none; }
+.sm-wrap input[type=checkbox] { width: 17px; height: 17px; margin: 0; vertical-align: middle; }
+.sm-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.sm-row > div { flex: 1; min-width: 150px; }
+.sm-row > div > label:not([style]) { min-height: 2.6em; display: flex; align-items: flex-end; }
+.sm-btn { background: #6dac20; color: #fff !important; border: 0; border-radius: 6px; padding: 10px 22px; font-size: 1em; cursor: pointer; margin-top: 18px; font-weight: 600; }
+.sm-alert { border-radius: 8px; padding: 10px 14px; margin: 12px 0; }
+.sm-ok { background: #e8f5e9; border: 1px solid #a5d6a7; }
+.sm-err { background: #ffebee; border: 1px solid #ef9a9a; }
+.sm-warn { background: #fff8e1; border: 1px solid #ffe082; }
+.sm-info { background: #e3f2fd; border: 1px solid #90caf9; font-size: 0.9em; }
+.sm-mono { font-family: ui-monospace, monospace; background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+.sm-small { font-size: 0.82em; color: #666; margin-top: 3px; }
+.sm-tabs { display: flex; gap: 4px; margin: 14px 0 0; border-bottom: 2px solid #6dac20; flex-wrap: wrap; }
+.sm-tab { background: #eee; border: 1px solid #ccc; border-bottom: 0; border-radius: 8px 8px 0 0; padding: 9px 18px; cursor: pointer; font-size: 0.95em; color: #444 !important; text-shadow: none !important; }
+.sm-tab.sm-active { background: #6dac20; color: #fff !important; border-color: #6dac20; font-weight: 600; }
+.sm-pane { display: none; padding-top: 4px; }
+.sm-pane.sm-active { display: block; }
+.sm-log { text-shadow: none !important; background: #1e1e1e; color: #d4d4d4; font-family: ui-monospace, monospace; font-size: 0.82em; padding: 12px; border-radius: 8px; max-height: 480px; overflow: auto; white-space: pre-wrap; }
+.sm-step { margin: 10px 0; padding: 10px 14px; background: #fafafa; border-left: 4px solid #6dac20; border-radius: 0 8px 8px 0; }
+.sm-tbl { border-collapse: collapse; margin: 8px 0; }
+.sm-tbl th, .sm-tbl td { border: 1px solid #ddd; padding: 6px 10px; text-align: left; font-size: 0.9em; }
+.sm-tbl th { background: #f0f0f0; }
+.sm-wrap .sm-btn, .sm-wrap a.sm-btn, .sm-wrap button { text-shadow: none !important; box-shadow: none !important; }
+.sm-wrap a.sm-btn, .sm-wrap a.sm-btn:visited, .sm-wrap a.sm-btn:hover { color: #fff !important; text-decoration: none; }
 
-/* --- Einheitliches Kachel-Raster im Reiter Test (Standard aller Plugins) --- */
-.rb-h3 { color: #4f7d17; font-size: 1.0em; font-weight: 700; margin: 16px 0 2px; text-shadow: none !important; }
-.rb-knopfreihe { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 4px; align-items: stretch; }
-.rb-knopfreihe form { margin: 0; display: flex; }
-.rb-knopfreihe .rb-btn { flex: 0 0 auto; min-width: 250px; text-align: center;
+/* --- <?php echo ro_t('TEXT.EINHEIT'); ?>liches Kachel-Raster im Reiter <?php echo ro_t('TEXT.TEST'); ?> (Standard aller Plugins) --- */
+.sm-h3 { color: #4f7d17; font-size: 1.0em; font-weight: 700; margin: 16px 0 2px; text-shadow: none !important; }
+.sm-knopfreihe { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 4px; align-items: stretch; }
+.sm-knopfreihe form { margin: 0; display: flex; }
+.sm-knopfreihe .sm-btn { flex: 0 0 auto; min-width: 250px; text-align: center;
     display: inline-flex; align-items: center; justify-content: center; line-height: 1.25; }
-.rb-legende { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 2px; font-size: 0.86em; color: #555; }
-.rb-legende span { display: inline-flex; align-items: center; gap: 6px; }
-.rb-punkt { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
-.rb-btn.rb-b-lesen   { background: #6dac20; }
-.rb-btn.rb-b-technik { background: #546e7a; }
-.rb-btn.rb-b-aktion  { background: #e0620d; }
-.rb-punkt.rb-b-lesen   { background: #6dac20; }
-.rb-punkt.rb-b-technik { background: #546e7a; }
-.rb-punkt.rb-b-aktion  { background: #e0620d; }
+.sm-legende { display: flex; flex-wrap: wrap; gap: 14px; margin: 10px 0 2px; font-size: 0.86em; color: #555; }
+.sm-legende span { display: inline-flex; align-items: center; gap: 6px; }
+.sm-punkt { width: 13px; height: 13px; border-radius: 3px; display: inline-block; }
+.sm-btn.sm-b-lesen   { background: #6dac20; }
+.sm-btn.sm-b-technik { background: #546e7a; }
+.sm-btn.sm-b-aktion  { background: #e0620d; }
+.sm-punkt.sm-b-lesen   { background: #6dac20; }
+.sm-punkt.sm-b-technik { background: #546e7a; }
+.sm-punkt.sm-b-aktion  { background: #e0620d; }
 </style>
-<div class="rb-wrap">
+<div class="sm-wrap">
 
-<?php if ($rb_saved) { ?><div class="rb-alert rb-ok"><b>Konfiguration gespeichert</b> (inkl. Sicherungskopie f&uuml;r Updates).</div><?php } ?>
-<?php if ($rb_note !== '') { ?><div class="rb-alert rb-ok"><?= rb_e($rb_note) ?></div><?php } ?>
-<?php if ($rb_err !== '') { ?><div class="rb-alert rb-err"><b>Fehler:</b> <?= $rb_err ?></div><?php } ?>
+<?php if ($rb_saved) { ?><div class="sm-alert sm-ok"><b><?php echo ro_t('TEXT.KONFIGURATION_GESPEICHERT'); ?></b> <?php echo ro_t('TEXT.INKL_SICHERUNGSKOPIE_FR_UPDATES'); ?></div><?php } ?>
+<?php if ($rb_note !== '') { ?><div class="sm-alert sm-ok"><?= rb_e($rb_note) ?></div><?php } ?>
+<?php if ($rb_err !== '') { ?><div class="sm-alert sm-err"><b><?php echo ro_t('TEXT.FEHLER'); ?></b> <?= $rb_err ?></div><?php } ?>
 
 <?php if (!$rb_robots) { ?>
-<div class="rb-alert rb-info"><b>Noch kein Roboter eingerichtet.</b> Bitte unten die Adresse der Valetudo-Oberfl&auml;che eintragen und speichern.</div>
+<div class="sm-alert sm-info"><b><?php echo ro_t('TEXT.NOCH_KEIN_ROBOTER_EINGERICHTET'); ?></b> <?php echo ro_t('TEXT.BITTE_UNTEN_DIE_ADRESSE_DER_VALETU'); ?></div>
 <?php } ?>
 <?php foreach ($rb_states as $rb_k => $rb_s) { ?>
-<div class="rb-alert <?= $rb_s['fehler'] ? 'rb-warn' : 'rb-info' ?>">
+<div class="sm-alert <?= $rb_s['fehler'] ? 'sm-warn' : 'sm-info' ?>">
 <b><?= rb_e($rb_s['name']) ?></b>:
 <?php if ($rb_s['ok']) { ?>
-<b><?= rb_e($rb_s['text']) ?></b> &middot; Batterie <?= (int) $rb_s['batterie'] ?> %<?= $rb_s['laedt'] ? ' (l&auml;dt)' : '' ?>
+<b><?= rb_e($rb_s['text']) ?></b> <?php echo ro_t('TEXT.BATTERIE'); ?> <?= (int) $rb_s['batterie'] ?> %<?= $rb_s['laedt'] ? ' (l&auml;dt)' : '' ?>
 <?= $rb_s['fehler'] ? ' &middot; <b>Fehler ' . (int) $rb_s['fehler'] . '</b> ' . rb_e($rb_s['fehlertext']) : '' ?><br>
-Letzte Reinigung: <?= rb_e($rb_s['flaeche']) ?> m&sup2; in <?= (int) $rb_s['dauer'] ?> min<?= $rb_s['letzte'] ? ' (' . rb_e(date('d.m.Y H:i', $rb_s['letzte'])) . ')' : '' ?><br>
-Gesamt: <?= rb_e($rb_s['flaeche_gesamt']) ?> m&sup2; &middot; <?= rb_e($rb_s['dauer_gesamt']) ?> h &middot; <?= (int) $rb_s['anzahl_gesamt'] ?> Reinigungen<br>
-Verbrauchsmaterial: Filter <?= rb_h($rb_s['filter']) ?> &middot; Hauptb&uuml;rste <?= rb_h($rb_s['buerste_haupt']) ?> &middot;
-Seitenb&uuml;rste <?= rb_h($rb_s['buerste_seite']) ?> &middot; Sensoren <?= rb_h($rb_s['sensor']) ?>
+<?php echo ro_t('TEXT.LETZTE_REINIGUNG'); ?> <?= rb_e($rb_s['flaeche']) ?> <?php echo ro_t('TEXT.M_SUP2_IN'); ?> <?= (int) $rb_s['dauer'] ?> min<?= $rb_s['letzte'] ? ' (' . rb_e(date('d.m.Y H:i', $rb_s['letzte'])) . ')' : '' ?><br>
+<?php echo ro_t('TEXT.GESAMT'); ?> <?= rb_e($rb_s['flaeche_gesamt']) ?> <?php echo ro_t('TEXT.M_SUP2'); ?> <?= rb_e($rb_s['dauer_gesamt']) ?> <?php echo ro_t('TEXT.H'); ?> <?= (int) $rb_s['anzahl_gesamt'] ?> <?php echo ro_t('TEXT.REINIGUNGEN'); ?><br>
+<?php echo ro_t('TEXT.VERBRAUCHSMATERIAL_FILTER'); ?> <?= rb_h($rb_s['filter']) ?> <?php echo ro_t('TEXT.HAUPTBRSTE'); ?> <?= rb_h($rb_s['buerste_haupt']) ?> <?php echo ro_t('TEXT.SEITENBRSTE'); ?> <?= rb_h($rb_s['buerste_seite']) ?> <?php echo ro_t('TEXT.SENSOREN'); ?> <?= rb_h($rb_s['sensor']) ?>
 <?= $rb_s['material_warn'] ? ' &rarr; <b>Wartung f&auml;llig</b>' : '' ?>
 <?php } else { ?>
-<b>keine Verbindung</b> &mdash; Adresse pr&uuml;fen (Valetudo-Oberfl&auml;che im Browser erreichbar?).
+<b><?php echo ro_t('TEXT.KEINE_VERBINDUNG'); ?></b> <?php echo ro_t('TEXT.ADRESSE_PRFEN_VALETUDO_OBERFLCHE_I'); ?>
 <?php } ?>
 </div>
 <?php } ?>
 
-<div class="rb-tabs">
-    <div class="rb-tab" data-pane="tab-settings">Einstellungen</div>
-    <div class="rb-tab" data-pane="tab-loxone">Einbindung in Loxone</div>
-    <div class="rb-tab" data-pane="tab-test">Test</div>
-    <div class="rb-tab" data-pane="tab-log">Protokoll</div>
+<div class="sm-tabs">
+    <div class="sm-tab" data-pane="tab-settings"><?php echo ro_t('REITER.EINSTELLUNGEN'); ?></div>
+    <div class="sm-tab" data-pane="tab-loxone"><?php echo ro_t('REITER.LOXONE'); ?></div>
+    <div class="sm-tab" data-pane="tab-test"><?php echo ro_t('REITER.TEST'); ?></div>
+    <div class="sm-tab" data-pane="tab-log"><?php echo ro_t('REITER.LOG'); ?></div>
 </div>
 
-<!-- ================= Einstellungen ================= -->
-<div class="rb-pane" id="tab-settings">
-<form method="post" autocomplete="off">
+<!-- ================= <?php echo ro_t('TEXT.EINSTELLUNG'); ?>en ================= -->
+<div class="sm-pane" id="tab-settings">
+<form action="index.php" method="post" autocomplete="off">
 <input data-role="none" type="hidden" name="save" value="1">
 <input data-role="none" type="hidden" name="activetab" value="tab-settings">
 
-<h2>Roboter (bis zu 2)</h2>
-<table class="rb-tbl" style="width:100%;">
-<tr><th style="width:36px;">Nr.</th><th style="width:34%;">Name (frei)</th><th>Adresse (IP oder Hostname)</th><th style="width:100px;">Port</th></tr>
+<h2><?php echo ro_t('TEXT.ROBOTER_BIS_ZU_2'); ?></h2>
+<table class="sm-tbl" style="width:100%;">
+<tr><th style="width:36px;">Nr.</th><th style="width:34%;"><?php echo ro_t('TEXT.NAME_FREI'); ?></th><th><?php echo ro_t('TEXT.ADRESSE_IP_ODER_HOSTNAME'); ?></th><th style="width:100px;"><?php echo ro_t('TEXT.PORT'); ?></th></tr>
 <?php for ($rb_i = 0; $rb_i < 2; $rb_i++) {
     $rb_r = isset($rb_cfg['robots'][$rb_i]) ? (array) $rb_cfg['robots'][$rb_i] : array();
     $rb_r += array('name' => '', 'ip' => '', 'port' => 80); ?>
@@ -220,58 +245,56 @@ Seitenb&uuml;rste <?= rb_h($rb_s['buerste_seite']) ?> &middot; Sensoren <?= rb_h
 </tr>
 <?php } ?>
 </table>
-<div class="rb-small">Voraussetzung: Auf dem Roboter l&auml;uft <b>Valetudo</b> (cloudfreie Firmware). Die Adresse ist dieselbe,
-unter der die Valetudo-Weboberfl&auml;che erreichbar ist. Roboter 2 wird in Loxone mit <span class="rb-mono">&amp;dev=2</span> abgefragt.</div>
+<div class="sm-small"><?php echo ro_t('TEXT.VORAUSSETZUNG_AUF_DEM_ROBOTER_LUFT'); ?> <b><?php echo ro_t('TEXT.VALETUDO'); ?></b> <?php echo ro_t('TEXT.CLOUDFREIE_FIRMWARE_DIE_ADRESSE_IS'); ?> <span class="sm-mono"><?php echo ro_t('TEXT.DEV_2'); ?></span> <?php echo ro_t('TEXT.ABGEFRAGT'); ?></div>
 
-<div class="rb-row">
+<div class="sm-row">
     <div>
-        <label>Status-Cache (Sekunden)</label>
+        <label><?php echo ro_t('TEXT.STATUS_CACHE_SEKUNDEN'); ?></label>
         <input data-role="none" type="number" name="cache_sec" value="<?= (int) $rb_cfg['cache_sec'] ?>" min="5" max="300">
-        <div class="rb-small">H&auml;ufigere Abfragen werden aus dem Zwischenspeicher beantwortet. Empfehlung 20 &mdash;
-        damit gen&uuml;gt EINE Loxone-Abfrage alle 30 s statt bisher vier Abfragen alle 10 s.</div>
+        <div class="sm-small"><?php echo ro_t('TEXT.HUFIGERE_ABFRAGEN_WERDEN_AUS_DEM_Z'); ?></div>
     </div>
     <div>
-        <label>Warnschwelle Verbrauchsmaterial (Stunden)</label>
+        <label><?php echo ro_t('TEXT.WARNSCHWELLE_VERBRAUCHSMATERIAL_ST'); ?></label>
         <input data-role="none" type="number" name="warn_hours" value="<?= (int) $rb_cfg['warn_hours'] ?>" min="0" max="200">
-        <div class="rb-small">Unterhalb dieser Restlaufzeit meldet das Plugin &bdquo;Wartung f&auml;llig&ldquo; (<span class="rb-mono">MATWARN=1</span>).</div>
+        <div class="sm-small"><?php echo ro_t('TEXT.UNTERHALB_DIESER_RESTLAUFZEIT_MELD'); ?><span class="sm-mono"><?php echo ro_t('TEXT.MATWARN_1'); ?></span>).</div>
     </div>
 </div>
 
-<h2>Meldungen</h2>
+<h2><?php echo ro_t('TEXT.MELDUNGEN'); ?></h2>
 <div style="margin-bottom:10px;">
     <label style="display:inline-flex;align-items:center;gap:6px;margin-right:24px;">
-        <input data-role="none" type="checkbox" name="notify_audio" <?= !empty($rb_notify['audio']) ? 'checked' : '' ?>> Audioausgabe aktiv
+        <input data-role="none" type="checkbox" name="notify_audio" <?= !empty($rb_notify['audio']) ? 'checked' : '' ?><?php echo ro_t('TEXT.AUDIOAUSGABE_AKTIV'); ?>
     </label>
     <label style="display:inline-flex;align-items:center;gap:6px;">
-        <input data-role="none" type="checkbox" name="notify_push" <?= !empty($rb_notify['push']) ? 'checked' : '' ?>> Push-Nachricht aktiv
+        <input data-role="none" type="checkbox" name="notify_push" <?= !empty($rb_notify['push']) ? 'checked' : '' ?><?php echo ro_t('TEXT.PUSH_NACHRICHT_AKTIV'); ?>
     </label>
-    <div class="rb-small">Die Ansage spricht das Plugin selbst; den Push verschickt der Miniserver &uuml;ber <span class="rb-mono">ANN=1</span>.</div>
+    <div class="sm-small"><?php echo ro_t('TEXT.DIE_ANSAGE_SPRICHT_DAS_PLUGIN_SELB'); ?> <span class="sm-mono"><?php echo ro_t('TEXT.ANN_1'); ?></span>.</div>
 </div>
 <div>
     <label style="display:inline-flex;align-items:center;gap:6px;margin-right:20px;">
-        <input data-role="none" type="checkbox" name="n_fertig" <?= !empty($rb_notify['fertig']) ? 'checked' : '' ?>> Reinigung fertig (mit Fl&auml;che und Dauer)
+        <input data-role="none" type="checkbox" name="n_fertig" <?= !empty($rb_notify['fertig']) ? 'checked' : '' ?><?php echo ro_t('TEXT.REINIGUNG_FERTIG_MIT_FLCHE_UND_DAU'); ?>
     </label>
     <label style="display:inline-flex;align-items:center;gap:6px;margin-right:20px;">
-        <input data-role="none" type="checkbox" name="n_fehler" <?= !empty($rb_notify['fehler']) ? 'checked' : '' ?>> St&ouml;rung/Fehler
+        <input data-role="none" type="checkbox" name="n_fehler" <?= !empty($rb_notify['fehler']) ? 'checked' : '' ?><?php echo ro_t('TEXT.STRUNG_FEHLER'); ?>
     </label>
     <label style="display:inline-flex;align-items:center;gap:6px;">
-        <input data-role="none" type="checkbox" name="n_material" <?= !empty($rb_notify['material']) ? 'checked' : '' ?>> Wartung f&auml;llig (h&ouml;chstens 1&times; t&auml;glich)
+        <input data-role="none" type="checkbox" name="n_material" <?= !empty($rb_notify['material']) ? 'checked' : '' ?><?php echo ro_t('TEXT.WARTUNG_FLLIG_HCHSTENS_1_TGLICH'); ?>
     </label>
 </div>
 
-<h2>Sprachausgabe</h2>
-<div class="rb-row">
+<h2><?php echo ro_t('TEXT.SPRACHAUSGABE'); ?></h2>
+<div class="sm-row">
     <div>
-        <label>Audio-Ausgabe</label>
+        <label><?php echo ro_t('TEXT.AUDIO_AUSGABE'); ?></label>
         <select data-role="none" name="tts_mode" id="tts_mode" onchange="rbTtsMode()">
-            <option value="musicserver"<?= $rb_tts['mode'] === 'musicserver' ? ' selected' : '' ?>>Loxone Music Server (klassisch)</option>
-            <option value="ms4h"<?= $rb_tts['mode'] === 'ms4h' ? ' selected' : '' ?>>Audioserver4Home / MusicServer4Home</option>
-            <option value="audioserver"<?= $rb_tts['mode'] === 'audioserver' ? ' selected' : '' ?>>Original Loxone Audioserver (via Loxone Config)</option>
-            <option value="custom"<?= $rb_tts['mode'] === 'custom' ? ' selected' : '' ?>>Eigene URL-Vorlage</option>
+            <option value="musicserver"<?= $rb_tts['mode'] === 'musicserver' ? ' selected' : '' ?><?php echo ro_t('TEXT.LOXONE_MUSIC_SERVER_KLASSISCH'); ?></option>
+            <option value="ms4h"<?= $rb_tts['mode'] === 'ms4h' ? ' selected' : '' ?><?php echo ro_t('TEXT.AUDIOSERVER4HOME_MUSICSERVER4HOME'); ?></option>
+            <option value="audioserver"<?= $rb_tts['mode'] === 'audioserver' ? ' selected' : '' ?><?php echo ro_t('TEXT.ORIGINAL_LOXONE_AUDIOSERVER_VIA_LO'); ?></option>
+            <option value="custom"<?= $rb_tts['mode'] === 'custom' ? ' selected' : '' ?><?php echo ro_t('TEXT.EIGENE_URL_VORLAGE'); ?></option>
         </select>
     </div>
     <div>
-        <label>IP des Audio-Servers</label>
+        <label><?php echo ro_t('TEXT.IP_DES_AUDIO_SERVERS'); ?></label>
         <input data-role="none" type="text" name="tts_ip" value="<?= rb_e($rb_tts['ip']) ?>" placeholder="z. B. 192.168.1.50">
     </div>
     <div>
@@ -279,191 +302,203 @@ unter der die Valetudo-Weboberfl&auml;che erreichbar ist. Roboter 2 wird in Loxo
         <input data-role="none" type="number" name="tts_port" value="<?= (int) $rb_tts['port'] ?>" min="1" max="65535">
     </div>
 </div>
-<div class="rb-row">
+<div class="sm-row">
     <div>
-        <label>Zonen</label>
+        <label><?php echo ro_t('TEXT.ZONEN'); ?></label>
         <input data-role="none" type="text" name="tts_zones" value="<?= rb_e($rb_tts['zones']) ?>" placeholder="z. B. 2,4,6">
-        <div class="rb-small">Zonennummern mit Komma (z.&nbsp;B. <span class="rb-mono">2,4,6</span>) &mdash; die Lautst&auml;rke kommt aus dem Feld daneben. Optional je Zone eigene Lautst&auml;rke: <span class="rb-mono">Zone~Lautst&auml;rke</span> (z.&nbsp;B. <span class="rb-mono">2~25,4~40</span>). Leerzeichen nach dem Komma sind erlaubt &mdash; <span class="rb-mono">2,4,6</span> und <span class="rb-mono">2, 4, 6</span> funktionieren beide.</div>
+        <div class="sm-small"><?php echo ro_t('TEXT.ZONENNUMMERN_MIT_KOMMA_Z_B'); ?> <span class="sm-mono">2,4,6</span><?php echo ro_t('TEXT.DIE_LAUTSTRKE_KOMMT_AUS_DEM_FELD_D'); ?> <span class="sm-mono"><?php echo ro_t('TEXT.ZONE_LAUTSTRKE'); ?></span> <?php echo ro_t('TEXT.Z_B'); ?> <span class="sm-mono">2~25,4~40</span><?php echo ro_t('TEXT.LEERZEICHEN_NACH_DEM_KOMMA_SIND_ER'); ?> <span class="sm-mono">2,4,6</span> und <span class="sm-mono">2, 4, 6</span> <?php echo ro_t('TEXT.FUNKTIONIEREN_BEIDE'); ?></div>
     </div>
     <div>
-        <label>Lautst&auml;rke (%)</label>
+        <label><?php echo ro_t('TEXT.LAUTSTRKE'); ?></label>
         <input data-role="none" type="number" name="tts_volume" value="<?= (int) $rb_tts['volume'] ?>" min="1" max="100">
     </div>
     <div>
-        <label>Sprache</label>
+        <label><?php echo ro_t('TEXT.SPRACHE'); ?></label>
         <input data-role="none" type="text" name="tts_lang" value="<?= rb_e($rb_tts['lang']) ?>" maxlength="2">
     </div>
 </div>
 <div id="tts_template_row">
-    <label>URL-Vorlage (f&uuml;r Audioserver4Home/MS4H bzw. eigene Ausgabe)</label>
-    <textarea data-role="none" name="tts_template" id="tts_template" rows="2" placeholder="http://{ip}:{port}/tts?text={text}&amp;zone={zones}&amp;vol={vol}"><?= rb_e($rb_tts['template']) ?></textarea>
-    <div class="rb-small">Platzhalter: <span class="rb-mono">{ip} {port} {zones} {vol} {lang} {text}</span>. Leer = Standard-Vorlage.</div>
+    <label><?php echo ro_t('TEXT.URL_VORLAGE_FR_AUDIOSERVER4HOME_MS'); ?></label>
+    <textarea data-role="none" name="tts_template" id="tts_template" rows="2" placeholder="<?php echo ro_t('TEXT.HTTP'); ?>{ip}:{port}/tts?text={text}&amp;zone={zones}&amp;vol={vol}"><?= rb_e($rb_tts['template']) ?></textarea>
+    <div class="sm-small"><?php echo ro_t('TEXT.PLATZHALTER'); ?> <span class="sm-mono"><?php echo ro_t('TEXT.IP_PORT_ZONES_VOL_LANG_TEXT'); ?></span><?php echo ro_t('TEXT.LEER_STANDARD_VORLAGE'); ?></div>
 </div>
-<div id="tts_audioserver_hint" class="rb-alert rb-info" style="display:none;">
-    Der originale Loxone Audioserver bietet keine HTTP-TTS-Schnittstelle. In diesem Modus spricht das Plugin nicht selbst;
-    die Ausgabe baut man in Loxone Config &uuml;ber Textgenerator und <span class="rb-mono">ANN=1</span>.
+<div id="tts_audioserver_hint" class="sm-alert sm-info" style="display:none;">
+    <?php echo ro_t('TEXT.DER_ORIGINALE_LOXONE_AUDIOSERVER_B'); ?> <span class="sm-mono">ANN=1</span>.
 </div>
 
-<h2>MQTT (optional)</h2>
+<h2><?php echo ro_t('TEXT.MQTT_OPTIONAL'); ?></h2>
 <label style="display:inline-flex;align-items:center;gap:6px;">
-    <input data-role="none" type="checkbox" name="mqtt_enabled" <?= !empty($rb_cfg['mqtt_enabled']) ? 'checked' : '' ?>> Zustand per MQTT ver&ouml;ffentlichen
+    <input data-role="none" type="checkbox" name="mqtt_enabled" <?= !empty($rb_cfg['mqtt_enabled']) ? 'checked' : '' ?><?php echo ro_t('TEXT.ZUSTAND_PER_MQTT_VERFFENTLICHEN'); ?>
 </label>
-<div class="rb-row" style="margin-top:6px;">
+<div class="sm-row" style="margin-top:6px;">
     <div>
-        <label>Topic-Pr&auml;fix</label>
+        <label><?php echo ro_t('TEXT.TOPIC_PRFIX'); ?></label>
         <input data-role="none" type="text" name="mqtt_topic" value="<?= rb_e($rb_cfg['mqtt_topic']) ?>" placeholder="saugrobo">
-        <div class="rb-small">Ver&ouml;ffentlicht u.&nbsp;a. <span class="rb-mono"><?= rb_e($rb_cfg['mqtt_topic']) ?>/code</span>,
-        <span class="rb-mono">/status</span>, <span class="rb-mono">/batterie</span>, <span class="rb-mono">/fehler</span>,
-        <span class="rb-mono">/flaeche</span>, <span class="rb-mono">/filter</span>, <span class="rb-mono">/material_warn</span>
-        (Roboter 2: <span class="rb-mono"><?= rb_e($rb_cfg['mqtt_topic']) ?>/2/...</span>).</div>
+        <div class="sm-small"><?php echo ro_t('TEXT.VERFFENTLICHT_U_A'); ?> <span class="sm-mono"><?= rb_e($rb_cfg['mqtt_topic']) ?><?php echo ro_t('TEXT.CODE'); ?></span>,
+        <span class="sm-mono"><?php echo ro_t('TEXT.STATUS'); ?></span>, <span class="sm-mono"><?php echo ro_t('TEXT.BATTERIE_2'); ?></span>, <span class="sm-mono"><?php echo ro_t('TEXT.FEHLER_2'); ?></span>,
+        <span class="sm-mono"><?php echo ro_t('TEXT.FLAECHE'); ?></span>, <span class="sm-mono"><?php echo ro_t('TEXT.FILTER'); ?></span>, <span class="sm-mono"><?php echo ro_t('TEXT.MATERIAL_WARN'); ?></span>
+        <?php echo ro_t('TEXT.ROBOTER_2'); ?> <span class="sm-mono"><?= rb_e($rb_cfg['mqtt_topic']) ?>/2/...</span>).</div>
     </div>
 </div>
 
-<button data-role="none" class="rb-btn" type="submit">Speichern</button>
+<button data-role="none" class="sm-btn" type="submit"><?php echo ro_t('TEXT.SPEICHERN'); ?></button>
 </form>
 </div>
 
 <!-- ================= Einbindung in Loxone ================= -->
-<div class="rb-pane" id="tab-loxone">
-<h2>Einbindung in Loxone &mdash; Schritt f&uuml;r Schritt</h2>
-<p>Das Plugin fasst die vier Valetudo-Schnittstellen zu <b>einer</b> Abfrage zusammen. Statt bisher vier virtuellen
-Eing&auml;ngen im 10-Sekunden-Takt gen&uuml;gt einer alle 30 Sekunden &mdash; und statt Buchstaben aus dem Status-Text
-zu zerlegen, gibt es eine saubere <b>Statuszahl</b>.</p>
+<div class="sm-pane" id="tab-loxone">
+<h2><?php echo ro_t('TEXT.EINBINDUNG_IN_LOXONE_SCHRITT_FR_SC'); ?></h2>
+<p><?php echo ro_t('TEXT.DAS_PLUGIN_FASST_DIE_VIER_VALETUDO'); ?> <b><?php echo ro_t('TEXT.EINER'); ?></b> <?php echo ro_t('TEXT.ABFRAGE_ZUSAMMEN_STATT_BISHER_VIER'); ?> <b><?php echo ro_t('TEXT.STATUSZAHL'); ?></b>.</p>
 
-<div class="rb-step"><b>Schritt 1: Virtueller HTTP-Eingang &bdquo;Saugroboter&ldquo;</b> (Abfrage alle 30 s)
-<table class="rb-tbl">
+<div class="sm-step"><b><?php echo ro_t('TEXT.SCHRITT_1_VIRTUELLER_HTTP_EINGANG_'); ?></b> <?php echo ro_t('TEXT.ABFRAGE_ALLE_30_S'); ?>
+<table class="sm-tbl">
+<tr><th><?php echo ro_t('TEXT.EIGENSCHAFT'); ?></th><th><?php echo ro_t('TEXT.WERT'); ?></th></tr>
+<tr><td>URL</td><td><span class="sm-mono">http://<?= $rb_host ?><?php echo ro_t('TEXT.PLUGINS'); ?><?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP'); ?></span> (Roboter 2: <span class="sm-mono"><?php echo ro_t('TEXT.DEV_2_2'); ?></span>)</td></tr>
+<tr><td><?php echo ro_t('TEXT.ABFRAGEZYKLUS'); ?></td><td><?php echo ro_t('TEXT.30_SEKUNDEN'); ?></td></tr>
+</table>
+</div>
+
+<div class="sm-step"><b><?php echo ro_t('TEXT.SCHRITT_2_BEFEHLSERKENNUNGEN'); ?></b>
+<table class="sm-tbl">
+<tr><th><?php echo ro_t('TEXT.BEFEHLSERKENNUNG'); ?></th><th><?php echo ro_t('TEXT.BEDEUTUNG'); ?></th></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.ICODE_I_V'); ?></span></td><td><b>Statuszahl</b><?php echo ro_t('TEXT.0_LADESTATION_1_BEREIT_2_REINIGT_3'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IBATT_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.ILAEDT_I_V'); ?></span></td><td><?php echo ro_t('TEXT.BATTERIE_IN_1_LDT_GERADE'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IFEHLER_I_V'); ?></span></td><td><?php echo ro_t('TEXT.FEHLERCODE_0_KEIN_FEHLER'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IFLAECHE_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.IDAUER_I_V'); ?></span></td><td><?php echo ro_t('TEXT.LETZTE_REINIGUNG_M_SUP2_UND_MINUTE'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IFLAECHEG_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.IDAUERG_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.IANZAHLG_I_V'); ?></span></td><td><?php echo ro_t('TEXT.GESAMTWERTE_M_SUP2_STUNDEN_ANZAHL_'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IFILTER_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.IBHAUPT_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.IBSEITE_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.ISENSOR_I_V'); ?></span></td><td><?php echo ro_t('TEXT.VERBRAUCHSMATERIAL_RESTSTUNDEN_BIS'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IMATWARN_I_V'); ?></span></td><td><?php echo ro_t('TEXT.1_MINDESTENS_EIN_TEIL_UNTER_DER_WA'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IANN_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.IPUSH_I_V'); ?></span> / <span class="sm-mono"><?php echo ro_t('TEXT.IPTEST_I_V'); ?></span></td><td><?php echo ro_t('TEXT.MELDEFENSTER_PUSH_FREIGABE_TEST_PU'); ?></td></tr>
+<tr><td><span class="sm-mono"><?php echo ro_t('TEXT.IOK_I_V'); ?></span></td><td><?php echo ro_t('TEXT.1_ROBOTER_ERREICHBAR'); ?></td></tr>
+</table>
+</div>
+
+<div class="sm-step"><b><?php echo ro_t('TEXT.SCHRITT_3_STEUERUNG_BER_EINEN_VIRT'); ?></b><br>
+<?php echo ro_t('TEXT.VALETUDO_VERLANGT_EIGENTLICH_PUT_A'); ?>
+<table class="sm-tbl">
 <tr><th>Eigenschaft</th><th>Wert</th></tr>
-<tr><td>URL</td><td><span class="rb-mono">http://<?= $rb_host ?>/plugins/<?= rb_e($rb_plugin) ?>/robo.php</span> (Roboter 2: <span class="rb-mono">?dev=2</span>)</td></tr>
-<tr><td>Abfragezyklus</td><td>30 Sekunden</td></tr>
+<tr><td><?php echo ro_t('TEXT.ADRESSE_VIRTUELLER_AUSGANG'); ?></td><td><span class="sm-mono">http://<?= $rb_host ?></span></td></tr>
 </table>
+<table class="sm-tbl">
+<tr><th><?php echo ro_t('TEXT.BEFEHL_BEI_EIN'); ?></th><th><?php echo ro_t('TEXT.WIRKUNG'); ?></th></tr>
+<tr><td><span class="sm-mono">/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_CMD_START'); ?>&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?></span></td><td><?php echo ro_t('TEXT.KOMPLETTREINIGUNG_STARTEN'); ?></td></tr>
+<tr><td><span class="sm-mono">/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_CMD_PAUSE'); ?>&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?></span></td><td><?php echo ro_t('TEXT.PAUSIEREN'); ?></td></tr>
+<tr><td><span class="sm-mono">/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_CMD_STOP'); ?>&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?></span></td><td><?php echo ro_t('TEXT.STOPPEN'); ?></td></tr>
+<tr><td><span class="sm-mono">/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_CMD_HOME'); ?>&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?></span></td><td><?php echo ro_t('TEXT.ZUR_LADESTATION'); ?></td></tr>
+<tr><td><span class="sm-mono">/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_CMD_LOCATE'); ?>&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?></span></td><td><?php echo ro_t('TEXT.ROBOTER_PIEPSEN_LASSEN_WIEDERFINDE'); ?></td></tr>
+<tr><td><span class="sm-mono">/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_CMD_SEGMENTSP_1_4'); ?>&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?></span></td><td><?php echo ro_t('TEXT.NUR_BESTIMMTE_RUME_REINIGEN_IDS_SI'); ?></td></tr>
+<tr><td><span class="sm-mono">/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_CMD_FANP_MAX'); ?>&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?></span></td><td><?php echo ro_t('TEXT.SAUGSTRKE_LOW_MEDIUM_HIGH_MAX_TURB'); ?></td></tr>
+</table>
+<div class="sm-alert sm-warn"><b>Token n&ouml;tig:</b> Der Endpunkt liegt unangemeldet und ist deshalb mit einem Token abgesichert &ndash; ohne passendes <span class="sm-mono">&amp;token=...</span> antwortet er mit HTTP 403 (aktuelles Token im n&auml;chsten Abschnitt).</div>
 </div>
 
-<div class="rb-step"><b>Schritt 2: Befehlserkennungen</b>
-<table class="rb-tbl">
-<tr><th>Befehlserkennung</th><th>Bedeutung</th></tr>
-<tr><td><span class="rb-mono">\iCODE=\i\v</span></td><td><b>Statuszahl</b>: 0 = Ladestation, 1 = bereit, 2 = reinigt, 3 = pausiert, 4 = f&auml;hrt zur Station, 5 = f&auml;hrt, 8 = unbekannt, 9 = Fehler</td></tr>
-<tr><td><span class="rb-mono">\iBATT=\i\v</span> / <span class="rb-mono">\iLAEDT=\i\v</span></td><td>Batterie in % / 1 = l&auml;dt gerade</td></tr>
-<tr><td><span class="rb-mono">\iFEHLER=\i\v</span></td><td>Fehlercode (0 = kein Fehler)</td></tr>
-<tr><td><span class="rb-mono">\iFLAECHE=\i\v</span> / <span class="rb-mono">\iDAUER=\i\v</span></td><td>letzte Reinigung: m&sup2; und Minuten</td></tr>
-<tr><td><span class="rb-mono">\iFLAECHEG=\i\v</span> / <span class="rb-mono">\iDAUERG=\i\v</span> / <span class="rb-mono">\iANZAHLG=\i\v</span></td><td>Gesamtwerte: m&sup2;, Stunden, Anzahl Reinigungen</td></tr>
-<tr><td><span class="rb-mono">\iFILTER=\i\v</span> / <span class="rb-mono">\iBHAUPT=\i\v</span> / <span class="rb-mono">\iBSEITE=\i\v</span> / <span class="rb-mono">\iSENSOR=\i\v</span></td><td>Verbrauchsmaterial: Reststunden bis zum Wechsel (&minus;1 = nicht verf&uuml;gbar)</td></tr>
-<tr><td><span class="rb-mono">\iMATWARN=\i\v</span></td><td>1 = mindestens ein Teil unter der Warnschwelle</td></tr>
-<tr><td><span class="rb-mono">\iANN=\i\v</span> / <span class="rb-mono">\iPUSH=\i\v</span> / <span class="rb-mono">\iPTEST=\i\v</span></td><td>Meldefenster / Push-Freigabe / Test-Push</td></tr>
-<tr><td><span class="rb-mono">\iOK=\i\v</span></td><td>1 = Roboter erreichbar</td></tr>
-</table>
-</div>
-
-<div class="rb-step"><b>Schritt 3: Steuerung &uuml;ber einen Virtuellen Ausgang</b><br>
-Valetudo verlangt eigentlich PUT-Aufrufe mit JSON-Rumpf. Das Plugin macht daraus einfache Adressen, die Loxone
-direkt senden kann.
-<table class="rb-tbl">
+<div class="sm-step"><b>Aktionstoken</b>
+<table class="sm-tbl">
 <tr><th>Eigenschaft</th><th>Wert</th></tr>
-<tr><td>Adresse (Virtueller Ausgang)</td><td><span class="rb-mono">http://<?= $rb_host ?></span></td></tr>
+<tr><td>Aktuelles Token</td><td><span class="sm-mono"><?= rb_e($rb_cfg['aktionstoken']) ?></span></td></tr>
 </table>
-<table class="rb-tbl">
-<tr><th>Befehl bei EIN</th><th>Wirkung</th></tr>
-<tr><td><span class="rb-mono">/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=start</span></td><td>Komplettreinigung starten</td></tr>
-<tr><td><span class="rb-mono">/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=pause</span></td><td>pausieren</td></tr>
-<tr><td><span class="rb-mono">/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=stop</span></td><td>stoppen</td></tr>
-<tr><td><span class="rb-mono">/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=home</span></td><td>zur Ladestation</td></tr>
-<tr><td><span class="rb-mono">/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=locate</span></td><td>Roboter piepsen lassen (wiederfinden)</td></tr>
-<tr><td><span class="rb-mono">/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=segments&amp;p=1,4</span></td><td>nur bestimmte R&auml;ume reinigen (IDs siehe Reiter Test)</td></tr>
-<tr><td><span class="rb-mono">/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=fan&amp;p=max</span></td><td>Saugst&auml;rke (low, medium, high, max, turbo)</td></tr>
-</table>
+<div class="sm-knopfreihe sm-b-aktion">
+  <form method="post" action="index.php">
+    <input data-role="none" type="hidden" name="activetab" value="tab-loxone">
+    <button data-role="none" type="submit" name="token_neu" value="1">Neues Token erzeugen</button>
+  </form>
+</div>
+<div class="sm-legende">
+<span><i class="sm-punkt sm-b-aktion"></i> Aktion &ndash; &auml;ndert bestehende Loxone-Adressen</span>
+</div>
 </div>
 
-<div class="rb-step"><b>Schritt 4: Komplette Baustein-Liste zum 1:1-Nachbauen</b><br>
-<b>4a) Kacheln und Zustandsanzeige</b>
-<table class="rb-tbl">
-<tr><th>Baustein</th><th>Name</th><th>Einstellung</th><th>Eing&auml;nge</th></tr>
-<tr><td>Statusbaustein</td><td>Saugroboter-Zustand</td><td>Texte je Wert: 0 &bdquo;in der Ladestation&ldquo;, 1 &bdquo;bereit&ldquo;, 2 &bdquo;reinigt&ldquo;, 3 &bdquo;pausiert&ldquo;, 4 &bdquo;f&auml;hrt zur Station&ldquo;, 9 &bdquo;St&ouml;rung&ldquo;</td><td>I1 &larr; CODE</td></tr>
-<tr><td>Analoganzeigen</td><td>Batterie / Fl&auml;che / Dauer</td><td>Einheiten <span class="rb-mono">&lt;v.0&gt; %</span>, <span class="rb-mono">&lt;v.1&gt; m&sup2;</span>, <span class="rb-mono">&lt;v.0&gt; min</span></td><td>&larr; BATT, FLAECHE, DAUER</td></tr>
-<tr><td>Analoganzeigen</td><td>Filter / B&uuml;rsten / Sensoren</td><td>Einheit <span class="rb-mono">&lt;v.0&gt; h</span> &mdash; Restlaufzeit bis zur Wartung</td><td>&larr; FILTER, BHAUPT, BSEITE, SENSOR</td></tr>
+<div class="sm-step"><b><?php echo ro_t('TEXT.SCHRITT_4_KOMPLETTE_BAUSTEIN_LISTE'); ?></b><br>
+<b><?php echo ro_t('TEXT.4A_KACHELN_UND_ZUSTANDSANZEIGE'); ?></b>
+<table class="sm-tbl">
+<tr><th><?php echo ro_t('TEXT.BAUSTEIN'); ?></th><th><?php echo ro_t('TEXT.NAME'); ?></th><th>Einstellung</th><th><?php echo ro_t('TEXT.EINGNGE'); ?></th></tr>
+<tr><td><?php echo ro_t('TEXT.STATUSBAUSTEIN'); ?></td><td><?php echo ro_t('TEXT.SAUGROBOTER_ZUSTAND'); ?></td><td><?php echo ro_t('TEXT.TEXTE_JE_WERT_0_IN_DER_LADESTATION'); ?></td><td><?php echo ro_t('TEXT.I1_CODE'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.ANALOGANZEIGEN'); ?></td><td><?php echo ro_t('TEXT.BATTERIE_FLCHE_DAUER'); ?></td><td><?php echo ro_t('TEXT.EINHEITEN'); ?> <span class="sm-mono">&lt;v.0&gt; %</span>, <span class="sm-mono"><?php echo ro_t('TEXT.V_1_M_SUP2'); ?></span>, <span class="sm-mono"><?php echo ro_t('TEXT.V_0_MIN'); ?></span></td><td><?php echo ro_t('TEXT.BATT_FLAECHE_DAUER'); ?></td></tr>
+<tr><td>Analoganzeigen</td><td><?php echo ro_t('TEXT.FILTER_BRSTEN_SENSOREN'); ?></td><td>Einheit <span class="sm-mono">&lt;v.0&gt; h</span> <?php echo ro_t('TEXT.RESTLAUFZEIT_BIS_ZUR_WARTUNG'); ?></td><td><?php echo ro_t('TEXT.FILTER_BHAUPT_BSEITE_SENSOR'); ?></td></tr>
 </table>
-<b>4b) Meldungen (fertig, St&ouml;rung, Wartung)</b>
-<table class="rb-tbl">
+<b><?php echo ro_t('TEXT.4B_MELDUNGEN_FERTIG_STRUNG_WARTUNG'); ?></b>
+<table class="sm-tbl">
 <tr><th>Baustein</th><th>Name</th><th>Einstellung</th><th>Eing&auml;nge</th></tr>
-<tr><td>Schwellwertschalter S1</td><td>Meldefenster aktiv</td><td>Ein 0,5 / Aus 0,4</td><td>&larr; ANN</td></tr>
-<tr><td>Schwellwertschalter S2</td><td>Push freigegeben</td><td>Ein 0,5 / Aus 0,4</td><td>&larr; PUSH</td></tr>
-<tr><td>UND U1 + ODER O1</td><td>Roboter-Meldung</td><td>O1 ist die einzige Quelle des Benachrichtigungs-Bausteins</td><td>U1: S1 &amp; S2</td></tr>
-<tr><td>Benachrichtigungs-Baustein</td><td>Push &bdquo;Saugroboter&ldquo;</td><td>Text z. B. &bdquo;Saugroboter-Meldung &mdash; Details in der App&ldquo;</td><td>&larr; O1</td></tr>
-<tr><td>Schwellwertschalter S3</td><td>St&ouml;rung</td><td>Ein 0,5 an FEHLER &mdash; f&uuml;r eine eigene Warnkachel</td><td>&larr; FEHLER</td></tr>
-<tr><td>Schwellwertschalter S4</td><td>Wartung f&auml;llig</td><td>Ein 0,5 an MATWARN</td><td>&larr; MATWARN</td></tr>
-<tr><td>Benachrichtigungs-Baustein 2</td><td>Test-Push</td><td>eigener Baustein NUR f&uuml;r den Test</td><td>&larr; Schwellwertschalter an PTEST</td></tr>
+<tr><td><?php echo ro_t('TEXT.SCHWELLWERTSCHALTER_S1'); ?></td><td><?php echo ro_t('TEXT.MELDEFENSTER_AKTIV'); ?></td><td><?php echo ro_t('TEXT.EIN_0_5_AUS_0_4'); ?></td><td><?php echo ro_t('TEXT.ANN'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.SCHWELLWERTSCHALTER_S2'); ?></td><td><?php echo ro_t('TEXT.PUSH_FREIGEGEBEN'); ?></td><td>Ein 0,5 / Aus 0,4</td><td><?php echo ro_t('TEXT.PUSH'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.UND_U1_ODER_O1'); ?></td><td><?php echo ro_t('TEXT.ROBOTER_MELDUNG'); ?></td><td><?php echo ro_t('TEXT.O1_IST_DIE_EINZIGE_QUELLE_DES_BENA'); ?></td><td><?php echo ro_t('TEXT.U1_S1_S2'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.BENACHRICHTIGUNGS_BAUSTEIN'); ?></td><td><?php echo ro_t('TEXT.PUSH_SAUGROBOTER'); ?></td><td><?php echo ro_t('TEXT.TEXT_Z_B_SAUGROBOTER_MELDUNG_DETAI'); ?></td><td><?php echo ro_t('TEXT.O1'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.SCHWELLWERTSCHALTER_S3'); ?></td><td><?php echo ro_t('TEXT.STRUNG'); ?></td><td><?php echo ro_t('TEXT.EIN_0_5_AN_FEHLER_FR_EINE_EIGENE_W'); ?></td><td><?php echo ro_t('TEXT.FEHLER_3'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.SCHWELLWERTSCHALTER_S4'); ?></td><td><?php echo ro_t('TEXT.WARTUNG_FLLIG'); ?></td><td><?php echo ro_t('TEXT.EIN_0_5_AN_MATWARN'); ?></td><td><?php echo ro_t('TEXT.MATWARN'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.BENACHRICHTIGUNGS_BAUSTEIN_2'); ?></td><td><?php echo ro_t('TEXT.TEST_PUSH'); ?></td><td><?php echo ro_t('TEXT.EIGENER_BAUSTEIN_NUR_FR_DEN_TEST'); ?></td><td><?php echo ro_t('TEXT.SCHWELLWERTSCHALTER_AN_PTEST'); ?></td></tr>
 </table>
-<b>4c) Automatisch saugen, wenn niemand da ist</b>
-<table class="rb-tbl">
+<b><?php echo ro_t('TEXT.4C_AUTOMATISCH_SAUGEN_WENN_NIEMAND'); ?></b>
+<table class="sm-tbl">
 <tr><th>Baustein</th><th>Name</th><th>Einstellung</th><th>Eing&auml;nge</th></tr>
-<tr><td>Schwellwertschalter S5</td><td>Roboter ist bereit</td><td>invertiert: Ein bei Unterschreiten von 1,5 (CODE 0 oder 1)</td><td>&larr; CODE</td></tr>
-<tr><td>UND U2</td><td>Saugen freigeben</td><td>&rarr; auf den Virtuellen Ausgang <span class="rb-mono">?cmd=start</span></td><td>S5 &amp; Abwesenheit &amp; Zeitfenster &amp; NICHT Wochenende</td></tr>
-<tr><td>UND U3</td><td>Sofort heimschicken</td><td>&rarr; <span class="rb-mono">?cmd=home</span>, wenn jemand nach Hause kommt</td><td>Anwesenheit &amp; (CODE = 2)</td></tr>
+<tr><td><?php echo ro_t('TEXT.SCHWELLWERTSCHALTER_S5'); ?></td><td><?php echo ro_t('TEXT.ROBOTER_IST_BEREIT'); ?></td><td><?php echo ro_t('TEXT.INVERTIERT_EIN_BEI_UNTERSCHREITEN_'); ?></td><td><?php echo ro_t('TEXT.CODE_2'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.UND_U2'); ?></td><td><?php echo ro_t('TEXT.SAUGEN_FREIGEBEN'); ?></td><td><?php echo ro_t('TEXT.AUF_DEN_VIRTUELLEN_AUSGANG'); ?> <span class="sm-mono"><?php echo ro_t('TEXT.CMD_START'); ?></span></td><td><?php echo ro_t('TEXT.S5_ABWESENHEIT_ZEITFENSTER_NICHT_W'); ?></td></tr>
+<tr><td><?php echo ro_t('TEXT.UND_U3'); ?></td><td><?php echo ro_t('TEXT.SOFORT_HEIMSCHICKEN'); ?></td><td><?php echo ro_t('TEXT.TEXT'); ?> <span class="sm-mono"><?php echo ro_t('TEXT.CMD_HOME'); ?></span><?php echo ro_t('TEXT.WENN_JEMAND_NACH_HAUSE_KOMMT'); ?></td><td><?php echo ro_t('TEXT.ANWESENHEIT_CODE_2'); ?></td></tr>
 </table>
-<b>Praxis-Erfahrung:</b> Der Benachrichtigungs-Baustein sendet nur bei einer 0&rarr;1-Flanke &mdash; niemals mehrere
-Quellen direkt an den Eingang legen, immer erst im ODER sammeln. F&uuml;r den Test einen eigenen Baustein verwenden.
+<b><?php echo ro_t('TEXT.PRAXIS_ERFAHRUNG'); ?></b> <?php echo ro_t('TEXT.DER_BENACHRICHTIGUNGS_BAUSTEIN_SEN'); ?>
 </div>
 
-<div class="rb-step"><b>Schritt 5: MQTT und JSON</b><br>
-Alle Werte auch per MQTT (Reiter Einstellungen) und als JSON inklusive Raumliste:
-<span class="rb-mono">http://<?= $rb_host ?>/plugins/<?= rb_e($rb_plugin) ?>/robo.php?json=1</span>
+<div class="sm-step"><b><?php echo ro_t('TEXT.SCHRITT_5_MQTT_UND_JSON'); ?></b><br>
+<?php echo ro_t('TEXT.ALLE_WERTE_AUCH_PER_MQTT_REITER_EI'); ?>
+<span class="sm-mono">http://<?= $rb_host ?>/plugins/<?= rb_e($rb_plugin) ?><?php echo ro_t('TEXT.ROBO_PHP_JSON_1'); ?></span>
 </div>
 </div>
 
 <!-- ================= Test ================= -->
-<div class="rb-pane" id="tab-test">
+<div class="sm-pane" id="tab-test">
 <h2>Test</h2>
-<div class="rb-legende">
-<span><i class="rb-punkt rb-b-lesen"></i> Ansehen &mdash; fragt nur ab, ver&auml;ndert nichts</span>
-<span><i class="rb-punkt rb-b-technik"></i> Technische Auskunft &mdash; f&uuml;r die Fehlersuche</span>
-<span><i class="rb-punkt rb-b-aktion"></i> L&ouml;st etwas aus &mdash; sendet oder ver&auml;ndert</span>
+<div class="sm-legende">
+<span><i class="sm-punkt sm-b-lesen"></i> <?php echo ro_t('LEGENDE.LESEN'); ?></span>
+<span><i class="sm-punkt sm-b-technik"></i> <?php echo ro_t('LEGENDE.TECHNIK'); ?></span>
+<span><i class="sm-punkt sm-b-aktion"></i> <?php echo ro_t('LEGENDE.AKTION'); ?></span>
 </div>
 
-<h3 class="rb-h3">Ansehen</h3>
-<div class="rb-knopfreihe">
-<a class="rb-btn rb-b-lesen"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php" target="_blank">Loxone-Zeile abrufen</a>
-<a class="rb-btn rb-b-lesen"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?json=1" target="_blank">JSON-Ansicht</a>
+<h3 class="sm-h3"><?php echo ro_t('TEXT.ANSEHEN'); ?></h3>
+<div class="sm-knopfreihe">
+<a class="sm-btn sm-b-lesen"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php" target="_blank"><?php echo ro_t('TEXT.LOXONE_ZEILE_ABRUFEN'); ?></a>
+<a class="sm-btn sm-b-lesen"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?json=1" target="_blank"><?php echo ro_t('TEXT.JSON_ANSICHT'); ?></a>
 </div>
 
-<h3 class="rb-h3">Technische Auskunft</h3>
-<div class="rb-knopfreihe">
-<a class="rb-btn rb-b-technik"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?debug=1&amp;refresh=1" target="_blank">Debug (inkl. Raumliste)</a>
+<h3 class="sm-h3"><?php echo ro_t('TEXT.TECHNISCHE_AUSKUNFT'); ?></h3>
+<div class="sm-knopfreihe">
+<a class="sm-btn sm-b-technik"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?debug=1&amp;refresh=1" target="_blank"><?php echo ro_t('TEXT.DEBUG_INKL_RAUMLISTE'); ?></a>
 </div>
 
-<h3 class="rb-h3">L&ouml;st etwas aus</h3>
-<div class="rb-knopfreihe">
-<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?ptest=1" target="_blank">Test-Pushnachricht</a>
-<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=locate" target="_blank">Roboter piepsen lassen</a>
-<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=home" target="_blank">Zur Ladestation</a>
-<a class="rb-btn rb-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=stop" target="_blank">Stopp</a>
+<h3 class="sm-h3"><?php echo ro_t('TEXT.LST_ETWAS_AUS'); ?></h3>
+<div class="sm-knopfreihe">
+<a class="sm-btn sm-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?ptest=1" target="_blank"><?php echo ro_t('TEXT.TEST_PUSHNACHRICHT'); ?></a>
+<a class="sm-btn sm-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=locate&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?>" target="_blank"><?php echo ro_t('TEXT.ROBOTER_PIEPSEN_LASSEN'); ?></a>
+<a class="sm-btn sm-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=home&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?>" target="_blank"><?php echo ro_t('TEXT.ZUR_LADESTATION_2'); ?></a>
+<a class="sm-btn sm-b-aktion"  href="/plugins/<?= rb_e($rb_plugin) ?>/robo.php?cmd=stop&amp;token=<?= rb_e($rb_cfg['aktionstoken']) ?>" target="_blank"><?php echo ro_t('TEXT.STOPP'); ?></a>
 </div>
 
 
-<div class="rb-small">&bdquo;Piepsen lassen&ldquo; ist der ungef&auml;hrlichste Verbindungstest &mdash; der Roboter meldet sich akustisch, f&auml;hrt aber nicht los.</div>
+<div class="sm-small"><?php echo ro_t('TEXT.PIEPSEN_LASSEN_IST_DER_UNGEFHRLICH'); ?></div>
 <?php $rb_seg = function_exists('ro_segments') ? ro_segments(1) : array(); if ($rb_seg) { ?>
-<h2>R&auml;ume (Segment-IDs)</h2>
-<table class="rb-tbl"><tr><th>ID</th><th>Name</th><th>Aufruf f&uuml;r Loxone</th></tr>
+<h2><?php echo ro_t('TEXT.RUME_SEGMENT_IDS'); ?></h2>
+<table class="sm-tbl"><tr><th>ID</th><th>Name</th><th><?php echo ro_t('TEXT.AUFRUF_FR_LOXONE'); ?></th></tr>
 <?php foreach ($rb_seg as $rb_id => $rb_nm) { ?>
-<tr><td><span class="rb-mono"><?= rb_e($rb_id) ?></span></td><td><?= rb_e($rb_nm) ?></td>
-<td><span class="rb-mono">?cmd=segments&amp;p=<?= rb_e($rb_id) ?></span></td></tr>
+<tr><td><span class="sm-mono"><?= rb_e($rb_id) ?></span></td><td><?= rb_e($rb_nm) ?></td>
+<td><span class="sm-mono"><?php echo ro_t('TEXT.CMD_SEGMENTSP'); ?><?= rb_e($rb_id) ?></span></td></tr>
 <?php } ?></table>
-<div class="rb-small">Mehrere R&auml;ume mit Komma: <span class="rb-mono">?cmd=segments&amp;p=<?= rb_e(implode(',', array_slice(array_keys($rb_seg), 0, 2))) ?></span></div>
+<div class="sm-small"><?php echo ro_t('TEXT.MEHRERE_RUME_MIT_KOMMA'); ?> <span class="sm-mono">?cmd=segments&amp;p=<?= rb_e(implode(',', array_slice(array_keys($rb_seg), 0, 2))) ?></span></div>
 <?php } else { ?>
-<div class="rb-alert rb-info">Raumliste noch nicht verf&uuml;gbar &mdash; erscheint, sobald der Roboter erreichbar ist und eine Karte mit benannten R&auml;umen hat.</div>
+<div class="sm-alert sm-info"><?php echo ro_t('TEXT.RAUMLISTE_NOCH_NICHT_VERFGBAR_ERSC'); ?></div>
 <?php } ?>
 </div>
 
-<!-- ================= Protokoll ================= -->
-<div class="rb-pane" id="tab-log">
+<!-- ================= <?php echo ro_t('TEXT.PROTOKOLL'); ?> ================= -->
+<div class="sm-pane" id="tab-log">
 <h2>Protokoll</h2>
-<div class="rb-small" style="margin-bottom:8px;">Protokolliert werden Status&auml;nderungen, beendete Reinigungen, Fehler, Wartungsmeldungen und Steuerbefehle. Neueste Eintr&auml;ge oben (max. 300).<br>Datei: <span class="rb-mono"><?= rb_e($rb_logfile) ?></span></div>
+<div class="sm-small" style="margin-bottom:8px;"><?php echo ro_t('TEXT.PROTOKOLLIERT_WERDEN_STATUSNDERUNG'); ?><br><?php echo ro_t('TEXT.DATEI'); ?> <span class="sm-mono"><?= rb_e($rb_logfile) ?></span></div>
 <?php if ($rb_loglines) { ?>
-<div class="rb-log"><?= rb_e(implode("\n", $rb_loglines)) ?></div>
+<div class="sm-log"><?= rb_e(implode("\n", $rb_loglines)) ?></div>
 <?php } else { ?>
-<div class="rb-alert rb-info">Noch keine Protokoll-Eintr&auml;ge vorhanden.</div>
+<div class="sm-alert sm-info"><?php echo ro_t('TEXT.NOCH_KEINE_PROTOKOLL_EINTRGE_VORHA'); ?></div>
 <?php } ?>
-<form method="post" style="margin-top:10px;">
+<form action="index.php" method="post" style="margin-top:10px;">
     <input data-role="none" type="hidden" name="clearlog" value="1">
     <input data-role="none" type="hidden" name="activetab" value="tab-log">
-    <button data-role="none" class="rb-btn" type="submit" style="background:#c62828;">Protokoll leeren</button>
+    <button data-role="none" class="sm-btn" type="submit" style="background:#c62828;"><?php echo ro_t('TEXT.PROTOKOLL_LEEREN'); ?></button>
 </form>
 </div>
 
@@ -477,10 +512,10 @@ function rbTtsMode() {
     if (m === 'musicserver' && (!port.value || port.value === '80')) { port.value = 7091; }
 }
 (function () {
-    var tabs = document.querySelectorAll('.rb-tab');
+    var tabs = document.querySelectorAll('.sm-tab');
     function activate(id) {
-        tabs.forEach(function (t) { t.classList.toggle('rb-active', t.dataset.pane === id); });
-        document.querySelectorAll('.rb-pane').forEach(function (p) { p.classList.toggle('rb-active', p.id === id); });
+        tabs.forEach(function (t) { t.classList.toggle('sm-active', t.dataset.pane === id); });
+        document.querySelectorAll('.sm-pane').forEach(function (p) { p.classList.toggle('sm-active', p.id === id); });
     }
     tabs.forEach(function (t) { t.addEventListener('click', function () { activate(t.dataset.pane); }); });
     activate(<?= json_encode($rb_tab) ?>);

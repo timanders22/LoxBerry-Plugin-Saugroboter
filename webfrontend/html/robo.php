@@ -10,11 +10,13 @@
  *                             5=faehrt 8=unbekannt 9=Fehler
  *                       Verbrauchsmaterial in Reststunden (-1 = nicht verfuegbar)
  *
- * Steuerung (einfache GET-Aufrufe fuer virtuelle Ausgaenge):
- *   ?cmd=start | stop | pause | home | locate
- *   ?cmd=segments&p=1,4     Raeume reinigen (IDs siehe Reiter Test)
- *   ?cmd=fan&p=max          Saugstaerke (low, medium, high, max, turbo)
- *   ?cmd=goto&p=<id>        gespeicherte Position anfahren
+ * Steuerung (einfache GET-Aufrufe fuer virtuelle Ausgaenge; token-pflichtig):
+ *   ?cmd=start | stop | pause | home | locate &token=T
+ *   ?cmd=segments&p=1,4&token=T     Raeume reinigen (IDs siehe Reiter Test)
+ *   ?cmd=fan&p=max&token=T          Saugstaerke (low, medium, high, max, turbo)
+ *   ?cmd=goto&p=<id>&token=T        gespeicherte Position anfahren
+ *   Ohne passendes Token aus dem Reiter "Einbindung in Loxone" antwortet
+ *   ?cmd= mit HTTP 403.
  *
  * Weitere Aufrufe: ?debug=1  ?json=1  ?refresh=1  ?ptest=1
  */
@@ -35,6 +37,14 @@ if (isset($_GET['json'])) {
 header('Content-Type: text/plain; charset=utf-8');
 
 if (isset($_GET['cmd'])) {
+    $ro_cfg_tok = ro_config();
+    $ro_soll = isset($ro_cfg_tok['aktionstoken']) ? (string) $ro_cfg_tok['aktionstoken'] : '';
+    $ro_ist = isset($_GET['token']) ? (string) $_GET['token'] : '';
+    if ($ro_soll === '' || !hash_equals($ro_soll, $ro_ist)) {
+        http_response_code(403);
+        echo "CMD;OK=0;ERR=TOKEN\n";
+        exit;
+    }
     list($ok, $info) = ro_command($_GET['cmd'], $dev, isset($_GET['p']) ? $_GET['p'] : '');
     echo 'CMD;OK=' . $ok . ';BEFEHL=' . htmlspecialchars((string) $_GET['cmd'], ENT_QUOTES) . ';INFO=' . $info . "\n";
     exit;
