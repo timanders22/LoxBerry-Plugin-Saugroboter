@@ -57,7 +57,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['token_neu'])) {
     $rb_cfg_tok['aktionstoken'] = function_exists('ro_token_erzeugen') ? ro_token_erzeugen() : bin2hex(random_bytes(12));
     if (!is_dir($rb_cfgdir)) { @mkdir($rb_cfgdir, 0775, true); }
     $rb_json_tok = json_encode($rb_cfg_tok, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (@file_put_contents($rb_cfgfile, $rb_json_tok) !== false) {
+    // json_encode liefert bei ungueltigem UTF-8 false, und file_put_contents
+    // schriebe dann eine Datei mit NULL Bytes - und meldete das als Erfolg.
+    if ($rb_json_tok !== false && @file_put_contents($rb_cfgfile, $rb_json_tok) !== false) {
         @copy($rb_cfgfile, $rb_bkfile);
         $rb_note = 'Neues Token erzeugt. Die Adressen in Loxone muessen angepasst werden '
                  . '- die alten funktionieren nicht mehr.';
@@ -102,7 +104,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     if ($rb_err === '') {
         if (!is_dir($rb_cfgdir)) { @mkdir($rb_cfgdir, 0775, true); }
         $rb_json = json_encode($rb_new, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if (@file_put_contents($rb_cfgfile, $rb_json) !== false) {
+        // json_encode liefert bei ungueltigem UTF-8 false, und file_put_contents
+        // schriebe dann eine Datei mit NULL Bytes - und meldete das als Erfolg.
+        if ($rb_json !== false && @file_put_contents($rb_cfgfile, $rb_json) !== false) {
             $rb_saved = true;
             @copy($rb_cfgfile, $rb_bkfile);
             foreach (glob('/tmp/saugrobo/state_*.json') ?: array() as $g) { @unlink($g); }
@@ -123,7 +127,9 @@ if (empty($rb_cfg['aktionstoken'])) {
     $rb_cfg['aktionstoken'] = function_exists('ro_token_erzeugen') ? ro_token_erzeugen() : bin2hex(random_bytes(12));
     if (!is_dir($rb_cfgdir)) { @mkdir($rb_cfgdir, 0775, true); }
     $rb_json_init = json_encode($rb_cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if (@file_put_contents($rb_cfgfile, $rb_json_init) !== false) {
+    // json_encode liefert bei ungueltigem UTF-8 false, und file_put_contents
+    // schriebe dann eine Datei mit NULL Bytes - und meldete das als Erfolg.
+    if ($rb_json_init !== false && @file_put_contents($rb_cfgfile, $rb_json_init) !== false) {
         @copy($rb_cfgfile, $rb_bkfile);
     }
 }
